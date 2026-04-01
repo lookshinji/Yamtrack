@@ -204,7 +204,8 @@ class CustomList(models.Model):
         over the 2:3 poster for better display in list cards.
         For IGDB games, prefer widescreen screenshots or artworks over cover art.
         """
-        first_item = self.items.first()
+        all_items = self.items.all()
+        first_item = all_items[0] if all_items else None
         if not first_item:
             return settings.IMG_NONE
         

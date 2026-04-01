@@ -54,10 +54,16 @@ def _get_completed_item_ids(user, item_ids):
     """Return the subset of item_ids that the user has marked Completed in any media type."""
     if not item_ids:
         return set()
+    # Only query media types that are actually present in the given items,
+    # avoiding one DB query per unused media type.
+    present_media_types = set(
+        Item.objects.filter(id__in=item_ids)
+        .exclude(media_type=MediaTypes.EPISODE.value)
+        .values_list("media_type", flat=True)
+        .distinct()
+    )
     completed = set()
-    for media_type in MediaTypes.values:
-        if media_type == MediaTypes.EPISODE.value:
-            continue  # Episode has no status/user field
+    for media_type in present_media_types:
         try:
             model = apps.get_model("app", media_type)
         except LookupError:
@@ -293,64 +299,6 @@ def lists(request):
     paginator = Paginator(custom_lists, items_per_page)
     lists_page = paginator.get_page(page)
 
-    # Validate lists and filter out any broken ones
-    valid_lists = []
-    broken_list_ids = []
-    for custom_list in lists_page:
-        try:
-            # Verify the list still exists and is accessible
-            # This catches cases where lists were deleted between query and render
-            verified_list = CustomList.objects.get(id=custom_list.id)
-            # Verify owner still exists
-            if not verified_list.owner:
-                logger.warning(
-                    "List ID %s has no owner, excluding from display",
-                    custom_list.id,
-                )
-                broken_list_ids.append(custom_list.id)
-                continue
-            valid_lists.append(custom_list)
-        except CustomList.DoesNotExist:
-            logger.warning(
-                "List ID %s (%s) no longer exists, excluding from display",
-                custom_list.id,
-                custom_list.name,
-            )
-            broken_list_ids.append(custom_list.id)
-            continue
-        except Exception as e:
-            logger.error(
-                "Error validating list ID %s: %s",
-                custom_list.id,
-                e,
-                exc_info=True,
-            )
-            broken_list_ids.append(custom_list.id)
-            continue
-
-    if broken_list_ids:
-        logger.warning(
-            "Filtered out %s broken lists from display: %s",
-            len(broken_list_ids),
-            broken_list_ids,
-        )
-        messages.warning(
-            request,
-            f"Some lists were removed from display because they no longer exist "
-            f"(likely deleted during a re-import). Please refresh the page.",
-        )
-        # Re-fetch the page without broken lists
-        # This is a workaround - ideally we'd filter in the query, but pagination makes it complex
-        valid_list_ids = [l.id for l in valid_lists]
-        if valid_list_ids:
-            custom_lists = custom_lists.filter(id__in=valid_list_ids)
-            paginator = Paginator(custom_lists, items_per_page)
-            lists_page = paginator.get_page(page)
-        else:
-            # All lists on this page were broken, show empty page
-            lists_page = paginator.get_page(1)
-            lists_page.object_list = []
-
     available_tags = CustomListForm._normalize_tags(
         tag
         for custom_list in CustomList.objects.filter(
@@ -360,10 +308,12 @@ def lists(request):
     )
 
     # Compute completion percentages for each list (titles completed / total titles)
-    all_item_ids = {item.id for cl in lists_page for item in cl.items.all()}
+    # Build per-list item ID sets from the prefetch cache in a single pass
+    list_item_ids_map = {cl.id: {item.id for item in cl.items.all()} for cl in lists_page}
+    all_item_ids = set().union(*list_item_ids_map.values()) if list_item_ids_map else set()
     completed_item_ids = _get_completed_item_ids(request.user, all_item_ids)
     for cl in lists_page:
-        list_item_ids = {item.id for item in cl.items.all()}
+        list_item_ids = list_item_ids_map.get(cl.id, set())
         if list_item_ids:
             n_done = len(list_item_ids & completed_item_ids)
             cl.completed_count = n_done

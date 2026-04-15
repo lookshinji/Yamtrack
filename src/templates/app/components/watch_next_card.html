@@ -1,0 +1,20 @@
+{% load app_tags %}
+
+{% for entry in media_list.items %}
+  <a href="{{ entry.link_item|media_url }}"
+     class="shrink-0 rounded-lg overflow-hidden shadow-lg bg-[#2a2f35] hover:ring-2 hover:ring-indigo-500 transition-all block"
+     style="width: 192px;">
+    <img alt="{{ entry.episode_title }}"
+         class="w-full lazyload bg-[#3e454d]"
+         style="aspect-ratio: 16/9; object-fit: cover;"
+         data-src="{{ entry.image|default:IMG_NONE }}"
+         src="{{ IMG_NONE }}"
+         loading="lazy">
+    <div class="p-2">
+      <p class="text-xs text-gray-400 truncate">{{ entry.show_name }}</p>
+      <p class="text-sm font-medium text-white truncate">
+        S{{ entry.season_number|stringformat:"02d" }}E{{ entry.episode_number|stringformat:"02d" }} &mdash; {{ entry.episode_title }}
+      </p>
+    </div>
+  </a>
+{% endfor %}

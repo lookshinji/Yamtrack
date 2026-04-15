@@ -6,6 +6,14 @@
 {% endblock title %}
 
 {% block content %}
+  {% if watch_next_entries %}
+    <div class="mb-8 sm:mb-12">
+      <h1 class="text-3xl font-bold mb-4">Watch Next</h1>
+      <div class="flex gap-3 overflow-x-auto pb-2" style="-webkit-overflow-scrolling: touch;">
+        {% include "app/components/watch_next_card.html" with media_list=watch_next_entries %}
+      </div>
+    </div>
+  {% endif %}
   <div class="flex flex-col sm:flex-row justify-between items-center gap-2 sm:gap-4 mb-4 sm:mb-8">
     <h1 class="text-3xl font-bold text-center w-full sm:w-auto">
       {% if user.show_planned_on_home == 'combined' %}
@@ -62,13 +70,7 @@
           {# Combined or Disabled mode: use section_key as media_type #}
           <h2 class="text-xl font-semibold mb-2 sm:mb-4">{{ section_key|media_type_readable_plural }}</h2>
         {% endif %}
-        {% if section_key == 'watch_next' %}
-          <div id="media-grid-watch_next"
-               class="flex gap-3 overflow-x-auto pb-2"
-               style="-webkit-overflow-scrolling: touch;">
-            {% include "app/components/watch_next_card.html" %}
-          </div>
-        {% elif section_key == 'recently_not_rated' %}
+        {% if section_key == 'recently_not_rated' %}
           {# Split mixed section by aspect ratio: 2:3 first, then 1:1 #}
           <div id="media-grid-{{ section_key }}">
             {% with square_types="music,podcast" %}

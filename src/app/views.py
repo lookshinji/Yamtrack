@@ -1325,18 +1325,10 @@ def home(request):
             media_type_to_load,
         )
 
-        # Prepend Watch Next on full-page loads only (not HTMX load-more requests)
+        # Fetch Watch Next on full-page loads only (not HTMX load-more requests)
+        watch_next_entries = []
         if not media_type_to_load:
-            watch_next_entries = BasicMedia.objects.get_watch_next(request.user, sort_by=sort_by)
-            if watch_next_entries:
-                list_by_type = {
-                    WATCH_NEXT_KEY: {
-                        "items": watch_next_entries,
-                        "total": len(watch_next_entries),
-                        "section_title": WATCH_NEXT_LABEL,
-                    },
-                    **list_by_type,
-                }
+            watch_next_entries = BasicMedia.objects.get_watch_next(request.user)
 
         # If this is an HTMX request to load more items for a specific media type
         if request.headers.get("HX-Request") and media_type_to_load:
@@ -1488,6 +1480,7 @@ def home(request):
         context = {
             "user": request.user,
             "list_by_type": list_by_type,
+            "watch_next_entries": watch_next_entries,
             "current_sort": sort_by,
             "sort_choices": HomeSortChoices.choices,
             "items_limit": items_limit,

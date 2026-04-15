@@ -1918,7 +1918,7 @@ class MediaManager(models.Manager):
             reverse=True,
         )
 
-    def get_watch_next(self, user, sort_by=None):
+    def get_watch_next(self, user):
         """Return one WatchNextEntry per in-progress TV show.
 
         For each show, finds the next unwatched episode in the most recently
@@ -1926,7 +1926,6 @@ class MediaManager(models.Manager):
         skipped. Season metadata is fetched/cached via get_episode_item() so
         episode thumbnails, titles and air dates are always available.
         """
-        from users.models import HomeSortChoices
 
         now = timezone.now()
 
@@ -1942,17 +1941,15 @@ class MediaManager(models.Manager):
             )
         )
 
-        if sort_by == HomeSortChoices.TITLE:
-            seasons = base_qs.order_by("related_tv__item__title", "item__title")
-        else:
-            seasons = base_qs.order_by(F("last_watched").desc(nulls_last=True))
+        # Always collect using last_watched desc so the first season seen per
+        # show is the most recently active one — deduplication is stable across
+        # all sort modes this way.
+        seasons = base_qs.order_by(F("last_watched").desc(nulls_last=True))
 
         entries = []
         seen_tv_ids = set()
 
         for season in seasons:
-            # One card per TV show — the queryset is sorted so the first season
-            # we encounter for a show is always the most recently active one.
             tv_id = season.related_tv_id
             if tv_id in seen_tv_ids:
                 continue
@@ -1960,21 +1957,12 @@ class MediaManager(models.Manager):
 
             next_ep_num = (season.max_watched_ep or 0) + 1
 
-            # Try DB first; fall back to provider fetch (cached) which also
-            # creates the Item so future loads hit the DB directly.
+            # Always call get_episode_item() so episode title and thumbnail are
+            # always fresh and correct (DB-only lookup can return stale data).
             try:
-                episode_item = Item.objects.get(
-                    media_id=season.item.media_id,
-                    source=season.item.source,
-                    media_type=MediaTypes.EPISODE.value,
-                    season_number=season.item.season_number,
-                    episode_number=next_ep_num,
-                )
-            except Item.DoesNotExist:
-                try:
-                    episode_item = season.get_episode_item(next_ep_num)
-                except Exception:
-                    continue
+                episode_item = season.get_episode_item(next_ep_num)
+            except Exception:
+                continue
 
             # Skip episodes confirmed as not yet aired
             if episode_item.release_datetime and episode_item.release_datetime > now:
@@ -4036,6 +4024,12 @@ class Season(Media):
             if not item.release_datetime and release_datetime:
                 item.release_datetime = release_datetime
                 update_fields.append("release_datetime")
+                updated = True
+            # Refresh image if it was previously stored as the placeholder but
+            # the provider now has a real still image available.
+            if not helpers.has_real_image(item.image) and helpers.has_real_image(image):
+                item.image = image
+                update_fields.append("image")
                 updated = True
             if updated:
                 item.save(update_fields=update_fields)

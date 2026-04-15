@@ -130,6 +130,8 @@ MEDIA_RATING_CHOICES = (
 RECENTLY_NOT_RATED_KEY = "recently_not_rated"
 RECENTLY_NOT_RATED_LABEL = "Recently Played - Not Rated"
 RECENTLY_NOT_RATED_DAYS = 7
+WATCH_NEXT_KEY = "watch_next"
+WATCH_NEXT_LABEL = "Watch Next"
 
 DISCOVER_ALLOWED_MEDIA_TYPES = {
     MediaTypes.MOVIE.value,
@@ -1323,6 +1325,11 @@ def home(request):
             media_type_to_load,
         )
 
+        # Fetch Watch Next on full-page loads only (not HTMX load-more requests)
+        watch_next_entries = []
+        if not media_type_to_load:
+            watch_next_entries = BasicMedia.objects.get_watch_next(request.user)
+
         # If this is an HTMX request to load more items for a specific media type
         if request.headers.get("HX-Request") and media_type_to_load:
             context = {
@@ -1473,6 +1480,7 @@ def home(request):
         context = {
             "user": request.user,
             "list_by_type": list_by_type,
+            "watch_next_entries": watch_next_entries,
             "current_sort": sort_by,
             "sort_choices": HomeSortChoices.choices,
             "items_limit": items_limit,

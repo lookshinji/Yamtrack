@@ -1063,6 +1063,20 @@ def _filter_queryset_by_item_json_array_ci(
     return queryset.extra(where=[where_sql], params=[normalized_target])
 
 
+class WatchNextEntry:
+    """Display data for a single card in the Watch Next section."""
+
+    __slots__ = ("image", "show_name", "season_number", "episode_number", "episode_title", "link_item")
+
+    def __init__(self, *, image, show_name, season_number, episode_number, episode_title, link_item):
+        self.image = image
+        self.show_name = show_name
+        self.season_number = season_number
+        self.episode_number = episode_number
+        self.episode_title = episode_title
+        self.link_item = link_item
+
+
 class MediaManager(models.Manager):
     """Custom manager for media models."""
 
@@ -1903,6 +1917,74 @@ class MediaManager(models.Manager):
             key=lambda media: media.last_played_at or media.created_at,
             reverse=True,
         )
+
+    def get_watch_next(self, user):
+        """Return one WatchNextEntry per in-progress TV show.
+
+        For each show, finds the next unwatched episode in the most recently
+        active season. Episodes whose air date is confirmed in the future are
+        skipped. Season metadata is fetched/cached via get_episode_item() so
+        episode thumbnails, titles and air dates are always available.
+        """
+
+        now = timezone.now()
+
+        base_qs = (
+            Season.objects.filter(
+                user=user,
+                status=Status.IN_PROGRESS.value,
+            )
+            .select_related("item", "related_tv__item")
+            .annotate(
+                max_watched_ep=Max("episodes__item__episode_number"),
+                last_watched=Max("episodes__end_date"),
+            )
+        )
+
+        # Always collect using last_watched desc so the first season seen per
+        # show is the most recently active one — deduplication is stable across
+        # all sort modes this way.
+        seasons = base_qs.order_by(F("last_watched").desc(nulls_last=True))
+
+        entries = []
+        seen_tv_ids = set()
+
+        for season in seasons:
+            tv_id = season.related_tv_id
+            if tv_id in seen_tv_ids:
+                continue
+            seen_tv_ids.add(tv_id)
+
+            next_ep_num = (season.max_watched_ep or 0) + 1
+
+            # Always call get_episode_item() so episode title and thumbnail are
+            # always fresh and correct (DB-only lookup can return stale data).
+            try:
+                episode_item = season.get_episode_item(next_ep_num)
+            except Exception:
+                continue
+
+            # Skip episodes confirmed as not yet aired
+            if episode_item.release_datetime and episode_item.release_datetime > now:
+                continue
+
+            tv_item = getattr(getattr(season, "related_tv", None), "item", None)
+            show_name = (
+                episode_item.series_name
+                or (tv_item.title if tv_item else None)
+                or season.item.title
+            )
+
+            entries.append(WatchNextEntry(
+                image=episode_item.image,
+                show_name=show_name,
+                season_number=season.item.season_number,
+                episode_number=next_ep_num,
+                episode_title=episode_item.title or f"Episode {next_ep_num}",
+                link_item=episode_item,
+            ))
+
+        return entries
 
     def _get_media_types_to_process(self, user, specific_media_type):
         """Determine which media types to process based on user settings."""
@@ -3942,6 +4024,12 @@ class Season(Media):
             if not item.release_datetime and release_datetime:
                 item.release_datetime = release_datetime
                 update_fields.append("release_datetime")
+                updated = True
+            # Refresh image if it was previously stored as the placeholder but
+            # the provider now has a real still image available.
+            if not helpers.has_real_image(item.image) and helpers.has_real_image(image):
+                item.image = image
+                update_fields.append("image")
                 updated = True
             if updated:
                 item.save(update_fields=update_fields)

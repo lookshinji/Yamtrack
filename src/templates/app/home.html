@@ -6,6 +6,14 @@
 {% endblock title %}
 
 {% block content %}
+  {% if watch_next_entries %}
+    <div class="mb-8 sm:mb-12">
+      <h1 class="text-3xl font-bold mb-4">Watch Next</h1>
+      <div class="flex gap-3 overflow-x-auto pb-2" style="-webkit-overflow-scrolling: touch;">
+        {% include "app/components/watch_next_card.html" with media_list=watch_next_entries %}
+      </div>
+    </div>
+  {% endif %}
   <div class="flex flex-col sm:flex-row justify-between items-center gap-2 sm:gap-4 mb-4 sm:mb-8">
     <h1 class="text-3xl font-bold text-center w-full sm:w-auto">
       {% if user.show_planned_on_home == 'combined' %}

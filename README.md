@@ -1,3 +1,6 @@
+# IMPORTANT
+- This is a very vibe-coded fork i've made to implement things I want for myself. please use dannyvfilms fork if you have knowledge and see features in this one you like and want to request / do merge requests also to it for dannyvfilms, this is mostly a playground.
+
 # Yamtrack
 
 A self-hosted Trakt replacement built on Yamtrack, with unified History, Time Left / Progress, richer stats, smarter lists, deeper integrations, and the daily-driver polish former Trakt users usually miss.

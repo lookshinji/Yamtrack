@@ -6685,6 +6685,199 @@ def _build_flat_anime_episode_preview(
 
 @login_not_required
 @require_GET
+def episode_details(request, source, media_id, title, season_number, episode_number):
+    """Return the detail page for a single TV episode."""
+    from app.models import Episode, Season
+    from app.providers import tmdb as providers_tmdb
+
+    ep_meta = providers_tmdb.episode(media_id, season_number, episode_number)
+
+    # Season metadata — used for the episode dropdown list
+    tv_with_seasons_metadata = services.get_media_metadata(
+        "tv_with_seasons",
+        media_id,
+        source,
+        [season_number],
+    )
+    season_key = f"season/{season_number}"
+    season_metadata = tv_with_seasons_metadata.get(season_key) or {}
+    # Raw episode list from the season cache (each dict has episode_number, name, air_date)
+    season_episodes = season_metadata.get("episodes") or []
+
+    # Episode Item from DB (may be None if never fetched)
+    episode_item = Item.objects.filter(
+        media_id=media_id,
+        source=source,
+        media_type=MediaTypes.EPISODE.value,
+        season_number=season_number,
+        episode_number=episode_number,
+    ).first()
+
+    # User's watch records for this episode
+    episode_watches = []
+    user_season = None
+    if request.user.is_authenticated:
+        try:
+            user_season = Season.objects.get(
+                user=request.user,
+                item__media_id=media_id,
+                item__source=source,
+                item__season_number=season_number,
+                item__episode_number=None,
+            )
+            if episode_item:
+                episode_watches = list(
+                    Episode.objects.filter(
+                        related_season=user_season,
+                        item=episode_item,
+                    ).order_by("-end_date", "-created_at")
+                )
+        except Season.DoesNotExist:
+            pass
+
+    # Season Item — needed for library_media_type in the track form
+    season_item = Item.objects.filter(
+        media_id=media_id,
+        source=source,
+        media_type=MediaTypes.SEASON.value,
+        season_number=season_number,
+    ).first()
+
+    # Unified dict used by fill_track_episode.html (passed as both media= and episode=)
+    episode_dict = {
+        "media_id": media_id,
+        "media_type": MediaTypes.EPISODE.value,
+        "source": source,
+        "season_number": season_number,
+        "episode_number": episode_number,
+        "library_media_type": season_item.library_media_type if season_item else "",
+        "title": ep_meta.get("episode_title", f"Episode {episode_number}"),
+        "image": ep_meta.get("image", settings.IMG_NONE),
+        "image_source": ep_meta.get("image_source", "primary"),
+        "air_date": ep_meta.get("air_date"),
+        "runtime": ep_meta.get("runtime"),
+        "overview": ep_meta.get("overview", ""),
+        "history": episode_watches,
+        "item": episode_item,
+        "actions_enabled": True,
+    }
+
+    tmdb_episode_url = (
+        f"https://www.themoviedb.org/tv/{media_id}"
+        f"/season/{season_number}/episode/{episode_number}"
+    )
+    imdb_id = ep_meta.get("imdb_id")
+    imdb_url = f"https://www.imdb.com/title/{imdb_id}/" if imdb_id else None
+
+    # Trakt episode rating + slug for URL (live API call, skipped if Trakt is not configured)
+    from app.providers import trakt as trakt_provider
+    trakt_episode_rating = None
+    trakt_slug = None
+    try:
+        trakt_episode_rating = trakt_provider.get_episode_rating(
+            media_id, season_number, episode_number
+        )
+        if trakt_episode_rating:
+            trakt_slug = trakt_episode_rating.get("trakt_slug")
+    except Exception:
+        pass
+    trakt_url = (
+        f"https://trakt.tv/shows/{trakt_slug or media_id}"
+        f"/seasons/{season_number}/episodes/{episode_number}"
+    )
+
+    # Build episode-specific TVDB and Wikidata URLs
+    show_external_links = tv_with_seasons_metadata.get("external_links") or {}
+    tvdb_show_url = show_external_links.get("TVDB", "")
+    tvdb_episode_id = ep_meta.get("tvdb_id")
+    tvdb_episode_url = None
+    if tvdb_show_url and tvdb_episode_id:
+        import re as _re
+        _m = _re.search(r"/series/([^/?#]+)", tvdb_show_url)
+        if _m:
+            tvdb_episode_url = f"https://www.thetvdb.com/series/{_m.group(1)}/episodes/{tvdb_episode_id}"
+    wikidata_episode_id = ep_meta.get("wikidata_id")
+    wikidata_episode_url = (
+        f"https://www.wikidata.org/wiki/{wikidata_episode_id}" if wikidata_episode_id else None
+    )
+
+    # External link chips for the links dropdown (same brand/logo system as season page)
+    _ep_link_entries = []
+    _seen = set()
+    def _add_ep_link(label, url, brand_key):
+        if url and url not in _seen:
+            entry = _build_detail_link_entry(label, url, brand_key)
+            if entry:
+                _ep_link_entries.append(entry)
+                _seen.add(url)
+    _add_ep_link("TMDB", tmdb_episode_url, Sources.TMDB.value)
+    _add_ep_link("Trakt", trakt_url, "trakt")
+    if imdb_url:
+        _add_ep_link("IMDb", imdb_url, "imdb")
+    _add_ep_link("TVDB", tvdb_episode_url or tvdb_show_url or None, Sources.TVDB.value)
+    _add_ep_link("Wikidata", wikidata_episode_url or show_external_links.get("Wikidata"), "wikidata")
+    episode_link_sections = [{"title": "Episode Links", "entries": _ep_link_entries}] if _ep_link_entries else []
+
+    # Current episode score (for pre-populating the rating widget)
+    episode_score = episode_watches[0].score if episode_watches else None
+
+    # Collection entry for this episode + season collected episodes count
+    collection_entry = None
+    season_collection_entry = None
+    season_collected_episodes = 0
+    season_total_episodes = len(season_episodes)
+    if request.user.is_authenticated:
+        if episode_item:
+            collection_entry = CollectionEntry.objects.filter(
+                user=request.user,
+                item=episode_item,
+            ).first()
+        if season_item:
+            season_collection_entry = CollectionEntry.objects.filter(
+                user=request.user,
+                item=season_item,
+            ).first()
+        # Count collected episodes in this season
+        season_collected_episodes = CollectionEntry.objects.filter(
+            user=request.user,
+            item__media_id=media_id,
+            item__source=source,
+            item__media_type=MediaTypes.EPISODE.value,
+            item__season_number=season_number,
+        ).count()
+
+    context = {
+        "user": request.user,
+        "media_type": MediaTypes.EPISODE.value,
+        "episode": episode_dict,
+        "ep_meta": ep_meta,
+        "episode_number": episode_number,
+        "season_number": season_number,
+        "media_id": media_id,
+        "source": source,
+        "title": title,
+        "episode_item": episode_item,
+        "season_item": season_item,
+        "season_episodes": season_episodes,
+        "user_season": user_season,
+        "tmdb_episode_url": tmdb_episode_url,
+        "imdb_url": imdb_url,
+        "trakt_url": trakt_url,
+        "trakt_episode_rating": trakt_episode_rating,
+        "episode_link_sections": episode_link_sections,
+        "collection_entry": collection_entry,
+        "season_collection_entry": season_collection_entry,
+        "season_collected_episodes": season_collected_episodes,
+        "season_total_episodes": season_total_episodes,
+        "episode_score": episode_score,
+        "IMG_NONE": settings.IMG_NONE,
+        "TRACK_TIME": getattr(request.user, "track_time", False),
+    }
+    return render(request, "app/episode_detail.html", context)
+
+
+@login_not_required
+@require_GET
 def season_details(
     request, source, media_id, title, season_number,
 ):

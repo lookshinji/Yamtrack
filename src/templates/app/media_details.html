@@ -176,7 +176,7 @@
               </div>
 
               {# Season dropdown #}
-              <div class="relative hidden md:block"
+              <div class="relative"
                    x-data="{ open: false }"
                    @click.away="open = false"
                    @keydown.escape.window="open = false">
@@ -1450,16 +1450,34 @@
                 {% for episode in media.episodes %}
                   <div class="bg-[#2a2f35] rounded-lg overflow-hidden shadow-lg">
                     <div class="flex flex-col md:flex-row">
-                      <img src="{{ IMG_NONE }}"
-                           alt="E{{ episode.display_episode_number|default:episode.episode_number }}"
-                           data-src="{{ episode.image }}"
-                           data-image-source="{{ episode.image_source|default:'primary' }}"
-                           class="lazyload {% if media_type == MediaTypes.PODCAST.value %}md:w-40 md:h-40{% else %}md:w-64 md:h-40{% endif %} shrink-0 {% if episode.image != IMG_NONE %}object-cover{% endif %}">
+                      {% if episode.source and episode.media_id and episode.season_number and episode.episode_number and media_type == MediaTypes.SEASON.value %}
+                        <a href="{% url 'episode_details' source=episode.source media_id=episode.media_id title=media.title|slug season_number=episode.season_number episode_number=episode.episode_number %}"
+                           class="shrink-0 block">
+                          <img src="{{ IMG_NONE }}"
+                               alt="E{{ episode.display_episode_number|default:episode.episode_number }}"
+                               data-src="{{ episode.image }}"
+                               data-image-source="{{ episode.image_source|default:'primary' }}"
+                               class="lazyload md:w-64 md:h-40 {% if episode.image != IMG_NONE %}object-cover{% endif %} hover:opacity-80 transition-opacity">
+                        </a>
+                      {% else %}
+                        <img src="{{ IMG_NONE }}"
+                             alt="E{{ episode.display_episode_number|default:episode.episode_number }}"
+                             data-src="{{ episode.image }}"
+                             data-image-source="{{ episode.image_source|default:'primary' }}"
+                             class="lazyload {% if media_type == MediaTypes.PODCAST.value %}md:w-40 md:h-40{% else %}md:w-64 md:h-40{% endif %} shrink-0 {% if episode.image != IMG_NONE %}object-cover{% endif %}">
+                      {% endif %}
                       <div class="py-3 flex-1 flex flex-col">
                         <div class="flex-1">
                           <div class="flex justify-between items-start mb-2 space-x-2 px-4">
                             <div>
-                              <h2 class="text-xl font-semibold mb-1 line-clamp-1">{{ episode.title }}</h2>
+                              <h2 class="text-xl font-semibold mb-1 line-clamp-1">
+                                {% if episode.source and episode.media_id and episode.season_number and episode.episode_number %}
+                                  <a href="{% url 'episode_details' source=episode.source media_id=episode.media_id title=media.title|slug season_number=episode.season_number episode_number=episode.episode_number %}"
+                                     class="hover:text-indigo-400 transition-colors">{{ episode.title }}</a>
+                                {% else %}
+                                  {{ episode.title }}
+                                {% endif %}
+                              </h2>
                               <p class="text-sm text-gray-400">
                                 {% if episode.display_episode_number|default:episode.episode_number %}Episode {{ episode.display_episode_number|default:episode.episode_number }} • {% endif %}{{ episode.air_date|user_date_format:user|default_if_none:"Unknown date" }}{% if episode.runtime %} • {{ episode.runtime }}{% endif %}
                               </p>

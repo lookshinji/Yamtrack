@@ -1838,7 +1838,7 @@ def episode(media_id, season_number, episode_number):
         url = f"{base_url}/tv/{media_id}/season/{season_number}/episode/{episode_number}"
         params = {
             **base_params,
-            "append_to_response": "credits",
+            "append_to_response": "credits,external_ids",
         }
 
         try:
@@ -1865,6 +1865,22 @@ def episode(media_id, season_number, episode_number):
         if not crew_rows:
             crew_rows = response.get("crew", []) or []
 
+        # Parse air_date string to a datetime object for template filters
+        air_date = None
+        raw_air_date = response.get("air_date")
+        if raw_air_date:
+            try:
+                from datetime import datetime as _dt
+                from django.utils import timezone as _tz
+                air_date = _tz.make_aware(
+                    _dt.strptime(raw_air_date, "%Y-%m-%d"),
+                    _tz.get_current_timezone(),
+                )
+            except (ValueError, TypeError):
+                pass
+
+        external_ids = response.get("external_ids") or {}
+
         data = {
             "title": season_metadata.get("title") or tv_metadata.get("title") or "",
             "original_title": (
@@ -1877,6 +1893,15 @@ def episode(media_id, season_number, episode_number):
             ),
             "season_title": season_metadata.get("season_title") or f"Season {season_number}",
             "episode_title": response.get("name") or f"Episode {episode_number}",
+            "overview": response.get("overview") or "",
+            "air_date": air_date,
+            "runtime": get_readable_duration(response.get("runtime")),
+            "imdb_id": external_ids.get("imdb_id"),
+            "tvdb_id": external_ids.get("tvdb_id"),
+            "wikidata_id": external_ids.get("wikidata_id"),
+            "media_id": str(media_id),
+            "score": get_score(response.get("vote_average")),
+            "score_count": response.get("vote_count"),
             "cast": get_cast_credits({"cast": cast_rows}),
             "crew": get_crew_credits({"crew": crew_rows}),
         }

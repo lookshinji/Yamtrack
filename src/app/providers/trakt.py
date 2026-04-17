@@ -146,6 +146,60 @@ def _lookup_season_by_show_id(
     }
 
 
+def get_episode_rating(
+    tmdb_show_id: str | int,
+    season_number: int,
+    episode_number: int,
+) -> dict[str, Any] | None:
+    """Return Trakt rating data for a specific episode.
+
+    Looks up the show by TMDB ID, then fetches the episode summary.
+    Returns ``{"rating": float, "votes": int}`` or ``None`` if unavailable.
+    """
+    if not is_configured():
+        return None
+
+    show_lookup = _lookup_media_by_external_id(
+        "tmdb",
+        tmdb_show_id,
+        media_type=MediaTypes.TV.value,
+    )
+    if not show_lookup:
+        return None
+
+    trakt_ids = show_lookup.get("trakt_ids") or {}
+    show_id = trakt_ids.get("trakt") or trakt_ids.get("slug")
+    trakt_slug = trakt_ids.get("slug") or show_id
+    if not show_id:
+        return None
+
+    try:
+        response = services.api_request(
+            TRAKT_API_PROVIDER,
+            "GET",
+            f"{TRAKT_BASE_URL}/shows/{show_id}/seasons/{season_number}/episodes/{episode_number}",
+            params={"extended": "full"},
+            headers=_headers(),
+        )
+    except services.ProviderAPIError as exc:
+        if exc.status_code in {400, 404}:
+            return None
+        raise
+    except Exception:
+        return None
+
+    if not isinstance(response, dict):
+        return None
+
+    rating = response.get("rating")
+    votes = response.get("votes")
+    return {
+        "rating": round(float(rating), 1) if rating is not None else None,
+        "votes": int(votes) if votes is not None else None,
+        "trakt_slug": trakt_slug,
+    }
+
+
 def lookup_by_external_id(
     external_id_type: str,
     external_id: str | int,

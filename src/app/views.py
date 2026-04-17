@@ -145,6 +145,7 @@ DISCOVER_ALLOWED_MEDIA_TYPES = {
     MediaTypes.GAME.value,
     MediaTypes.BOARDGAME.value,
 }
+DISCOVER_HIDDEN_SECTION = "hidden"
 DISCOVER_FAST_LOCAL_PLANNING_MEDIA_TYPES = {
     MediaTypes.TV.value,
     MediaTypes.ANIME.value,
@@ -1506,6 +1507,8 @@ def _coerce_discover_media_type(raw_media_type: str | None) -> str:
     media_type = (raw_media_type or "all").strip().lower()
     if media_type == "all":
         return "all"
+    if media_type == DISCOVER_HIDDEN_SECTION:
+        return DISCOVER_HIDDEN_SECTION
     if media_type in DISCOVER_ALLOWED_MEDIA_TYPES:
         return media_type
     return "all"
@@ -1517,6 +1520,8 @@ def _coerce_discover_debug(raw_debug: str | None) -> bool:
 
 def _resolve_discover_media_type_for_user(user, raw_media_type: str | None) -> str:
     media_type = _coerce_discover_media_type(raw_media_type)
+    if media_type == DISCOVER_HIDDEN_SECTION:
+        return DISCOVER_HIDDEN_SECTION
     return discover_tab_cache.resolve_media_type_for_user(user, media_type)
 
 
@@ -1537,7 +1542,19 @@ def _discover_media_options(user):
             }
             for media_type in enabled_media_types
         ],
+        {"value": DISCOVER_HIDDEN_SECTION, "label": "Hidden"},
     ]
+
+
+def _discover_hidden_entries(user):
+    return list(
+        DiscoverFeedback.objects.filter(
+            user=user,
+            feedback_type=DiscoverFeedbackType.NOT_INTERESTED.value,
+        )
+        .select_related("item")
+        .order_by("-updated_at", "-id")
+    )
 
 
 def _discover_rows_context(
@@ -1548,6 +1565,19 @@ def _discover_rows_context(
     discover_debug: bool,
     rows,
 ):
+    if selected_media_type == DISCOVER_HIDDEN_SECTION:
+        hidden_discover_entries = _discover_hidden_entries(request.user)
+        return {
+            "selected_media_type": selected_media_type,
+            "show_more": show_more,
+            "discover_debug": discover_debug,
+            "discover_loading": False,
+            "discover_activity_version": "",
+            "rows": [],
+            "hidden_discover_entries": hidden_discover_entries,
+            "hidden_discover_count": len(hidden_discover_entries),
+        }
+
     discover_status = (
         discover_tab_cache.get_tab_status(
             request.user.id,
@@ -1584,7 +1614,7 @@ def _apply_discover_response_headers(
 ):
     response["X-Discover-Media-Type"] = selected_media_type
     response["X-Discover-Show-More"] = "1" if show_more else "0"
-    if not discover_debug:
+    if not discover_debug and selected_media_type != DISCOVER_HIDDEN_SECTION:
         response["X-Discover-Activity-Version"] = discover_tab_cache.get_activity_version(
             user_id,
             selected_media_type,
@@ -1654,6 +1684,8 @@ def _discover_response_rows(
     show_more: bool,
     discover_debug: bool,
 ):
+    if selected_media_type == DISCOVER_HIDDEN_SECTION:
+        return []
     if discover_debug:
         return discover.get_discover_rows(
             user,
@@ -1777,7 +1809,7 @@ def discover_page(request):
         show_more=show_more,
         discover_debug=discover_debug,
     )
-    if not discover_debug:
+    if not discover_debug and selected_media_type != DISCOVER_HIDDEN_SECTION:
         discover_tab_cache.warm_sibling_tabs(
             request.user,
             selected_media_type,
@@ -2216,6 +2248,7 @@ def discover_action(request):
     trigger_payload = {
         "action": action,
         "message": message,
+        "active_media_type": active_media_type,
     }
     if undo_token:
         trigger_payload["undo_token"] = undo_token
@@ -2244,6 +2277,73 @@ def discover_action(request):
         row_fetch_ms,
         render_ms,
         int((time.monotonic() - request_started) * 1000),
+    )
+    return response
+
+
+def _build_track_modal_discover_tab_context(user, metadata_item):
+    """Build shared Discover-tab context for the track modal."""
+    return {
+        "discover_tab_available": metadata_item is not None,
+        "is_hidden_from_discover": (
+            DiscoverFeedback.objects.filter(
+                user=user,
+                item=metadata_item,
+                feedback_type=DiscoverFeedbackType.NOT_INTERESTED.value,
+            ).exists()
+            if metadata_item
+            else False
+        ),
+    }
+
+
+@login_required
+@require_POST
+def discover_toggle_hidden(request):
+    """Toggle the hidden status of an item from Discover."""
+    item_id = request.POST.get("item_id")
+    action = request.POST.get("action")  # 'hide' or 'unhide'
+    if action not in {"hide", "unhide"}:
+        return HttpResponseBadRequest("Invalid Discover visibility action.")
+
+    item = get_object_or_404(Item, id=item_id)
+
+    if action == "hide":
+        DiscoverFeedback.objects.update_or_create(
+            user=request.user,
+            item=item,
+            feedback_type=DiscoverFeedbackType.NOT_INTERESTED.value,
+            defaults={"source_context": "track_modal"},
+        )
+        message = f'Hidden "{item.title}" from Discover.'
+    else:
+        DiscoverFeedback.objects.filter(
+            user=request.user,
+            item=item,
+            feedback_type=DiscoverFeedbackType.NOT_INTERESTED.value,
+        ).delete()
+        message = f'Showing "{item.title}" in Discover.'
+
+    _invalidate_discover_after_action(
+        request.user.id,
+        item.library_media_type or item.media_type,
+        discover_debug=False,
+        feedback_change=True,
+    )
+
+    context = {
+        "item": item,
+        **_build_track_modal_discover_tab_context(request.user, item),
+    }
+
+    response = render(request, "app/components/discover_tab_content.html", context)
+    response["HX-Trigger"] = json.dumps(
+        {
+            "discoverActionComplete": {
+                "action": action,
+                "message": message,
+            },
+        },
     )
     return response
 
@@ -2294,11 +2394,26 @@ def progress_edit(request, media_type, instance_id):
 def media_list(request, media_type):
     """Return the media list page."""
     previous_sort = getattr(request.user, f"{media_type}_sort")
+    sorted_media_sort_choices = sorted(
+        MediaSortChoices.choices,
+        key=lambda choice: str(choice[1]).lower(),
+    )
     author_media_types = (
         MediaTypes.BOOK.value,
         MediaTypes.MANGA.value,
         MediaTypes.COMIC.value,
     )
+    critic_rating_media_types = {
+        MediaTypes.TV.value,
+        MediaTypes.SEASON.value,
+        MediaTypes.MOVIE.value,
+        MediaTypes.ANIME.value,
+        MediaTypes.MANGA.value,
+        MediaTypes.GAME.value,
+        MediaTypes.BOARDGAME.value,
+        MediaTypes.BOOK.value,
+        MediaTypes.COMIC.value,
+    }
     popularity_media_types = {
         MediaTypes.MOVIE.value,
         MediaTypes.TV.value,
@@ -2361,6 +2476,10 @@ def media_list(request, media_type):
         # Update the user's preference to the fallback
         request.user.update_preference(f"{media_type}_sort", "title")
         # Reset direction to the default for the fallback sort
+        direction_param = None
+    elif sort_filter == "critic_rating" and media_type not in critic_rating_media_types:
+        sort_filter = "title"
+        request.user.update_preference(f"{media_type}_sort", "title")
         direction_param = None
     elif sort_filter == "popularity" and media_type not in popularity_media_types:
         sort_filter = "title"
@@ -3136,6 +3255,11 @@ def media_list(request, media_type):
                     if rank is None:
                         rank = math.inf if direction == "asc" else -math.inf
                     return (rank, title.lower())
+                if sort_filter == "critic_rating":
+                    rating = getattr(item, "provider_rating", None)
+                    if rating is None:
+                        rating = math.inf if direction == "asc" else -math.inf
+                    return (rating, title.lower())
                 if sort_filter == "date_added":
                     return (_sortable_dt(getattr(media, "created_at", None)), title.lower())
                 if sort_filter == "start_date":
@@ -3250,11 +3374,12 @@ def media_list(request, media_type):
         "current_author": author_filter,
         "current_tag": tag_filter,
         "current_tag_exclude": tag_exclude_filter,
-        "sort_choices": MediaSortChoices.choices,
+        "sort_choices": sorted_media_sort_choices,
         "status_choices": MediaStatusChoices.choices,
         "rating_choices": MEDIA_RATING_CHOICES,
         "filter_data": filter_data,
         "is_artist_list": False,
+        "supports_critic_rating_sort": media_type in critic_rating_media_types,
     }
 
     # For music, show tracked artists instead of individual tracks
@@ -3446,12 +3571,13 @@ def media_list(request, media_type):
             "current_country": country_filter,
             "current_platform": platform_filter,
             "current_origin": origin_filter,
-            "sort_choices": MediaSortChoices.choices,
+            "sort_choices": sorted_media_sort_choices,
             "status_choices": MediaStatusChoices.choices,
             "rating_choices": MEDIA_RATING_CHOICES,
             "search_query": search_query,
             "filter_data": filter_data,
             "is_artist_list": False,
+            "supports_critic_rating_sort": False,
         }
 
     if media_type == MediaTypes.MUSIC.value:
@@ -3843,6 +3969,11 @@ def update_table_columns(request, media_type):
         MediaTypes.MOVIE.value,
         MediaTypes.TV.value,
         MediaTypes.ANIME.value,
+    }:
+        current_sort = "title"
+    elif current_sort == "critic_rating" and media_type in {
+        MediaTypes.MUSIC.value,
+        MediaTypes.PODCAST.value,
     }:
         current_sort = "title"
     elif current_sort == "popularity" and media_type not in {
@@ -5840,7 +5971,7 @@ def media_details(
 def update_metadata_provider_preference(request, source, media_type, media_id):
     """Persist a per-item metadata display-provider override."""
     provider = (request.POST.get("provider") or "").strip()
-    return_url = (request.POST.get("return_url") or "").strip()
+    return_url = helpers.normalize_navigation_url(request.POST.get("return_url"))
 
     tracking_media_type = metadata_resolution.get_tracking_media_type(
         media_type,
@@ -5908,7 +6039,7 @@ def update_metadata_provider_preference(request, source, media_type, media_id):
 @require_POST
 def update_item_image(request, item_id):
     """Persist an image URL override for an item the user already tracks."""
-    return_url = (request.POST.get("return_url") or "").strip()
+    return_url = helpers.normalize_navigation_url(request.POST.get("return_url"))
     image_url = (request.POST.get("image_url") or "").strip()
 
     item = get_object_or_404(Item, id=item_id)
@@ -5945,7 +6076,7 @@ def update_item_image(request, item_id):
 @require_POST
 def update_manual_item_metadata(request, item_id):
     """Persist custom metadata overrides for a tracked manual item."""
-    return_url = (request.POST.get("return_url") or "").strip()
+    return_url = helpers.normalize_navigation_url(request.POST.get("return_url"))
     item = get_object_or_404(Item, id=item_id)
     media_model = apps.get_model("app", item.media_type)
     if not media_model.objects.filter(user=request.user, item=item).exists():
@@ -6031,7 +6162,7 @@ def _resolve_current_display_metadata_payload(
 @require_POST
 def migrate_grouped_anime(request, source, media_type, media_id):
     """Explicitly migrate a flat MAL anime entry into grouped TV-style tracking."""
-    return_url = (request.POST.get("return_url") or "").strip()
+    return_url = helpers.normalize_navigation_url(request.POST.get("return_url"))
     provider = (request.POST.get("provider") or "").strip()
 
     item = get_object_or_404(
@@ -8524,6 +8655,7 @@ def _render_standard_track_modal(
         ),
         "episode_plays_domain_script_id": f"{track_form_id}-episode-domain",
     }
+    context.update(_build_track_modal_discover_tab_context(request.user, metadata_item))
     response = render(
         request,
         "app/components/fill_track.html",

@@ -96,10 +96,12 @@
     {# Media details #}
     <div class="md:w-3/4">
       {% if media.media_type == MediaTypes.SEASON.value %}
-        {# Show title — standalone h1, left-aligned #}
-        <div class="flex items-center gap-2 mb-1">
-          <h1 class="text-3xl font-bold cursor-pointer hover:text-indigo-500 transition-colors duration-200">
-            <a href="{% url 'media_details' source=media.source media_type=MediaTypes.TV.value media_id=media.media_id title=media.title|slug %}">{{ media|display_title:user }}</a>
+        {# Show title — Season Number as h1 #}
+        <div class="flex items-center gap-2 mb-2">
+          <h1 class="text-3xl font-bold">
+            <a href="{% url 'media_details' source=media.source media_type=MediaTypes.TV.value media_id=media.media_id title=media.title|slug %}"
+               class="hover:text-indigo-500 transition-colors duration-200">{{ media|display_title:user }}</a>
+            <span class="text-gray-400 font-normal"> - {{ media.season_header_title|default:media.title }}</span>
           </h1>
           {% if media.season_alternative_title %}
             <div class="relative shrink-0" x-data="{ tooltipOpen: false }">
@@ -127,12 +129,27 @@
           {% endif %}
         </div>
 
-        {# Season name left, season dropdown right — mirrors episode page #}
-        <div class="flex items-center justify-between mb-1">
-          <p class="text-sm text-gray-400">{{ media.season_header_title|default:media.title }}</p>
+        {# Progress, dates (left) and season switcher dropdown (right) on one row #}
+        <div class="flex items-center justify-between mb-3 gap-4">
+          <div class="flex flex-wrap items-center gap-y-1 text-sm font-medium text-gray-400 min-w-0">
+            {% if not public_view|default:False and current_instance %}
+              <span>Progress: {{ current_instance.completed_episode_count }}{% if media.max_progress %}/{{ media.max_progress }}{% endif %}</span>
+              {% if current_instance.start_date or current_instance.end_date %}
+                <span class="mx-2 text-gray-600">•</span>
+                <span>
+                  {% if current_instance.start_date and current_instance.end_date %}
+                    {{ current_instance.start_date|user_date_format:user }} - {{ current_instance.end_date|user_date_format:user }}
+                  {% elif current_instance.start_date %}
+                    {{ current_instance.start_date|user_date_format:user }}
+                  {% else %}
+                    {{ current_instance.end_date|user_date_format:user }}
+                  {% endif %}
+                </span>
+              {% endif %}
+            {% endif %}
+          </div>
 
           {# Season switcher dropdown — "S01" on mobile, full name on desktop #}
-
           <div class="relative shrink-0"
                x-data="{ open: false }"
                @click.away="open = false"
@@ -171,25 +188,6 @@
             </div>
           </div>
         </div>
-
-        {# Progress and dates — second line below season name/dropdown row #}
-        {% if not public_view|default:False and current_instance %}
-          <div class="flex flex-wrap items-center gap-y-1 text-sm font-medium text-gray-400 mb-3">
-            <span>Progress: {{ current_instance.completed_episode_count }}{% if media.max_progress %}/{{ media.max_progress }}{% endif %}</span>
-            {% if current_instance.start_date or current_instance.end_date %}
-              <span class="mx-2 text-gray-600">•</span>
-              <span>
-                {% if current_instance.start_date and current_instance.end_date %}
-                  {{ current_instance.start_date|user_date_format:user }} - {{ current_instance.end_date|user_date_format:user }}
-                {% elif current_instance.start_date %}
-                  {{ current_instance.start_date|user_date_format:user }}
-                {% else %}
-                  {{ current_instance.end_date|user_date_format:user }}
-                {% endif %}
-              </span>
-            {% endif %}
-          </div>
-        {% endif %}
       {% else %}
         {# Music track navigation - show artist and album links #}
         {% if media_type == MediaTypes.MUSIC.value and music_artist %}

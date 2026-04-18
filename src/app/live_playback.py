@@ -417,6 +417,18 @@ def _build_details_url(state: dict) -> str:
 
     if playback_media_type == MediaTypes.EPISODE.value:
         season_number = _coerce_int(state.get("season_number"))
+        episode_number = _coerce_int(state.get("episode_number"))
+        if season_number is not None and episode_number is not None:
+            return reverse(
+                "episode_details",
+                kwargs={
+                    "source": source,
+                    "media_id": media_id,
+                    "title": slug_title,
+                    "season_number": season_number,
+                    "episode_number": episode_number,
+                },
+            )
         if season_number is not None:
             return reverse(
                 "season_details",

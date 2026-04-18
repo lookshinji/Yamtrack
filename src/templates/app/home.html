@@ -6,6 +6,18 @@
 {% endblock title %}
 
 {% block content %}
+  {# Now Playing — shown above everything when a scrobble is active #}
+  <div id="active-playback-container"
+       class="mb-8 sm:mb-12"
+       {% if not active_playback_card %}style="display:none"{% endif %}
+       hx-get="{% url 'active_playback_fragment' %}"
+       hx-trigger="every 10s"
+       hx-swap="innerHTML"
+       hx-on::after-swap="this.style.display=this.children.length?'':'none'">
+    {% if active_playback_card %}
+      {% include "app/components/active_playback_section.html" %}
+    {% endif %}
+  </div>
   {% if watch_next_entries %}
     <div class="mb-8 sm:mb-12">
       <h1 class="text-3xl font-bold mb-4">Watch Next</h1>
@@ -14,8 +26,8 @@
       </div>
     </div>
   {% endif %}
-  <div class="flex flex-col sm:flex-row justify-between items-center gap-2 sm:gap-4 mb-4 sm:mb-8">
-    <h1 class="text-3xl font-bold text-center w-full sm:w-auto">
+  <div class="flex flex-row justify-between items-center gap-2 sm:gap-4 mb-4 sm:mb-8">
+    <h1 class="text-3xl font-bold">
       {% if user.show_planned_on_home == 'combined' %}
         In Progress and Planned
       {% else %}
@@ -48,17 +60,6 @@
     </div>
   </div>
   <div class="space-y-4 sm:space-y-8">
-    <div id="active-playback-container"
-         class="media-grid"
-         {% if not active_playback_card %}style="display:none"{% endif %}
-         hx-get="{% url 'active_playback_fragment' %}"
-         hx-trigger="every 10s"
-         hx-swap="innerHTML"
-         hx-on::after-swap="this.style.display=this.children.length?'':'none'">
-      {% if active_playback_card %}
-        {% include "app/components/active_playback_card.html" %}
-      {% endif %}
-    </div>
     {% for section_key, media_list in list_by_type.items %}
       <div>
         {% if media_list.section_title %}

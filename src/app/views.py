@@ -2354,7 +2354,7 @@ def active_playback_fragment(request):
     card = live_playback.build_home_playback_card(request.user)
     if not card:
         return HttpResponse("")
-    return render(request, "app/components/active_playback_card.html", {
+    return render(request, "app/components/active_playback_section.html", {
         "active_playback_card": card,
     })
 

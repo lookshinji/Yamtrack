@@ -668,7 +668,21 @@ def media_url(media):
         fallback = str(media_id) if media_id is not None else "item"
         slug_title = slug(fallback) or "item"
 
-    if media_type in [MediaTypes.SEASON.value, MediaTypes.EPISODE.value]:
+    if media_type == MediaTypes.EPISODE.value:
+        season_number = media["season_number"] if is_dict else media.season_number
+        episode_number = media["episode_number"] if is_dict else media.episode_number
+        return reverse(
+            "episode_details",
+            kwargs={
+                "source": source,
+                "media_id": media_id,
+                "title": slug_title,
+                "season_number": season_number,
+                "episode_number": episode_number,
+            },
+        )
+
+    if media_type == MediaTypes.SEASON.value:
         season_number = media["season_number"] if is_dict else media.season_number
         return reverse(
             "season_details",

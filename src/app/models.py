@@ -22,6 +22,7 @@ from django.db.models import (
     OuterRef,
     Prefetch,
     Q,
+    Subquery,
     UniqueConstraint,
     Window,
 )
@@ -1943,15 +1944,18 @@ class MediaManager(models.Manager):
             )
             .select_related("item", "related_tv__item")
             .annotate(
-                max_watched_ep=Max("episodes__item__episode_number"),
-                last_watched=Max("episodes__end_date"),
+                # Use the most recent episode date across ALL seasons of the
+                # same TV show.  This means an unstarted S2 inherits S1's
+                # recency and sorts alongside it rather than at the end.
+                last_watched_show=Max(
+                    "related_tv__seasons__episodes__end_date"
+                ),
             )
         )
 
-        # Always collect using last_watched desc so the first season seen per
-        # show is the most recently active one — deduplication is stable across
-        # all sort modes this way.
-        seasons = base_qs.order_by(F("last_watched").desc(nulls_last=True))
+        # Order by show-level recency so the first season seen per show is the
+        # most recently active one.
+        seasons = base_qs.order_by(F("last_watched_show").desc(nulls_last=True))
 
         entries = []
         seen_tv_ids = set()
@@ -1960,14 +1964,61 @@ class MediaManager(models.Manager):
             tv_id = season.related_tv_id
             if tv_id in seen_tv_ids:
                 continue
-            seen_tv_ids.add(tv_id)
+            # Do NOT add to seen_tv_ids here — only do so after we actually
+            # add an entry.  If this season is done/skipped, later seasons of
+            # the same show should still get a chance.
 
-            next_ep_num = (season.max_watched_ep or 0) + 1
+            # The furthest episode the user has watched is simply the maximum
+            # episode_number recorded.  next = that + 1.  This is robust
+            # against duplicate marks (the old +/- button bug created many
+            # records for the same episode, inflating counts and confusing any
+            # count-based algorithm).
+            latest_ep_num = (
+                Episode.objects.filter(related_season=season)
+                .exclude(item__episode_number__isnull=True)
+                .aggregate(m=Max("item__episode_number"))["m"]
+                or 0
+            )
+            next_ep_num = latest_ep_num + 1
 
-            # Always call get_episode_item() so episode title and thumbnail are
-            # always fresh and correct (DB-only lookup can return stale data).
+            # Fetch season metadata once so we can (a) verify the episode is
+            # actually listed and (b) pass it into get_episode_item to avoid a
+            # second network/cache hit.
             try:
-                episode_item = season.get_episode_item(next_ep_num)
+                season_meta = providers.services.get_media_metadata(
+                    MediaTypes.SEASON.value,
+                    season.item.media_id,
+                    season.item.source,
+                    [season.item.season_number],
+                )
+            except Exception:
+                continue
+
+            # Verify the next episode exists in provider metadata to avoid
+            # surfacing non-existent episodes (unannounced seasons like The Pitt
+            # S3, or completed seasons where next_ep exceeds the episode count
+            # like The Rookie S03 which only has 14 episodes).
+            if isinstance(season_meta, dict):
+                listed_ep_nums = {
+                    ep.get("episode_number")
+                    for ep in (season_meta.get("episodes") or [])
+                    if isinstance(ep, dict) and ep.get("episode_number") is not None
+                }
+                if listed_ep_nums:
+                    # We have episode data: skip only if next ep is beyond the
+                    # last known episode. This safely handles both completed
+                    # seasons and re-watches (next ep of a re-watch will be
+                    # within range).
+                    if next_ep_num > max(listed_ep_nums):
+                        continue
+                elif latest_ep_num == 0:
+                    # No episode data at all and season is unstarted →
+                    # confirmed-but-unannounced season, skip it.
+                    continue
+
+            # Fetch (or create) the episode Item with fresh metadata.
+            try:
+                episode_item = season.get_episode_item(next_ep_num, season_metadata=season_meta)
             except Exception:
                 continue
 
@@ -1982,8 +2033,32 @@ class MediaManager(models.Manager):
                 or season.item.title
             )
 
+            # Resolve the episode thumbnail. Priority:
+            #   1. Episode still_path from TMDB metadata (16:9, ideal)
+            #   2. Stored item image if it's a TMDB URL
+            #   3. TV show backdrop (w1280, landscape — fits the card aspect ratio)
+            from app import helpers as _helpers
+            episode_image = episode_item.image
+            if isinstance(season_meta, dict):
+                ep_data = (season_meta.get("_episodes_by_number") or {}).get(next_ep_num, {})
+                still_path = ep_data.get("still_path")
+                tmdb_ep_url = (
+                    f"https://image.tmdb.org/t/p/w500{still_path}" if still_path else None
+                )
+                stored = episode_item.image or ""
+                stored_tmdb = stored if "image.tmdb.org" in stored else None
+                tv_backdrop = _helpers.get_tmdb_backdrop_image(
+                    MediaTypes.TV.value, season.item.media_id
+                )
+                episode_image = _helpers.first_real_image(
+                    tmdb_ep_url,
+                    stored_tmdb,
+                    tv_backdrop,
+                )
+
+            seen_tv_ids.add(tv_id)
             entries.append(WatchNextEntry(
-                image=episode_item.image,
+                image=episode_image,
                 show_name=show_name,
                 season_number=season.item.season_number,
                 episode_number=next_ep_num,
@@ -4032,9 +4107,10 @@ class Season(Media):
                 item.release_datetime = release_datetime
                 update_fields.append("release_datetime")
                 updated = True
-            # Refresh image if it was previously stored as the placeholder but
-            # the provider now has a real still image available.
-            if not helpers.has_real_image(item.image) and helpers.has_real_image(image):
+            # Refresh image whenever the provider has a real image that
+            # differs from what is stored — covers initial placeholder fills
+            # and stale thumbnails on re-watches.
+            if helpers.has_real_image(image) and item.image != image:
                 item.image = image
                 update_fields.append("image")
                 updated = True

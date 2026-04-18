@@ -1168,6 +1168,7 @@ def _annotate_home_card_images(media_items):
         BasicMedia.objects._fix_missing_season_images(season_items)
 
 
+@never_cache
 @require_GET
 def home(request):
     """Home page with media items in progress."""

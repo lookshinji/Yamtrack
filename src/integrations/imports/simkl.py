@@ -255,23 +255,18 @@ class SimklImporter:
     def _process_seasons_and_episodes(self, tv, tv_instance, metadata):
         """Process seasons and episodes for a TV show."""
         tmdb_id = tv["show"]["ids"]["tmdb"]
+        title = tv["show"].get("title", tmdb_id)
 
         for season in tv["seasons"]:
             season_number = season["number"]
             episodes = season["episodes"]
-            season_key = f"season/{season_number}"
-            if season_key not in metadata:
-                title = tv["show"]["title"]
+            season_metadata = metadata.get(f"season/{season_number}")
+
+            if not season_metadata:
                 self.warnings.append(
-                    f"{title}: Season {season_number} not found in TMDB data, skipping",
-                )
-                logger.warning(
-                    "Season %s not found in TMDB metadata for %s; skipping",
-                    season_number,
-                    title,
+                    f"{title}: missing TMDB metadata for season {season_number}",
                 )
                 continue
-            season_metadata = metadata[season_key]
 
             # Use season poster if available, otherwise fallback to TV show poster
             season_image = season_metadata.get("image") or metadata.get("image")
@@ -331,10 +326,11 @@ class SimklImporter:
 
     def _get_episode_image(self, episode, season_number, metadata):
         """Get the image for the episode."""
-        season_key = f"season/{season_number}"
-        if season_key not in metadata or "episodes" not in metadata[season_key]:
+        season_metadata = metadata.get(f"season/{season_number}")
+        if not season_metadata:
             return settings.IMG_NONE
-        for episode_metadata in metadata[season_key]["episodes"]:
+
+        for episode_metadata in season_metadata.get("episodes", []):
             if episode_metadata["episode_number"] == episode["number"]:
                 return (
                     f"https://image.tmdb.org/t/p/w500{episode_metadata['still_path']}"

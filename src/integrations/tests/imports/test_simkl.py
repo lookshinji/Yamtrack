@@ -1,4 +1,4 @@
-from datetime import datetime, timezone as dt_timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,7 +23,6 @@ from integrations.imports import (
     helpers,
     simkl,
 )
-from integrations import tasks
 
 mock_path = Path(__file__).resolve().parent.parent / "mock_data"
 app_mock_path = (
@@ -141,7 +140,7 @@ class ImportSimkl(TestCase):
         """Test getting date from SIMKL."""
         self.assertEqual(
             self.importer._get_date("2023-01-01T00:00:00Z"),
-            datetime(2023, 1, 1, 0, 0, 0, tzinfo=dt_timezone.utc),
+            datetime(2023, 1, 1, 0, 0, 0, tzinfo=UTC),
         )
         self.assertIsNone(self.importer._get_date(None))
 
@@ -366,7 +365,7 @@ class ImportSimkl(TestCase):
         self.client.force_login(self.user)
         now = timezone.localtime()
         watch_dt = now.replace(day=2, hour=12, minute=0, second=0, microsecond=0)
-        watched_at = watch_dt.astimezone(dt_timezone.utc).isoformat().replace(
+        watched_at = watch_dt.astimezone(UTC).isoformat().replace(
             "+00:00",
             "Z",
         )

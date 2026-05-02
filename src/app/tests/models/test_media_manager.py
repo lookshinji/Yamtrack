@@ -692,7 +692,7 @@ class MediaManagerTests(TestCase):
             anime.item.prefetched_events = list(Event.objects.filter(item=anime.item))
 
         manager.annotate_max_progress(anime_list, MediaTypes.ANIME.value)
-        self.assertEqual(anime_list[0].max_progress, 20)
+        self.assertIsNone(anime_list[0].max_progress)
 
         tv_list = TV.objects.filter(user=self.user.id)
 

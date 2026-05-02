@@ -76,7 +76,8 @@ COPY --from=repo_meta /repo_owner /etc/yamtrack/fork_owner
 
 # Django app
 COPY src ./
-RUN python manage.py collectstatic --noinput
+RUN chmod -R a+rX /yamtrack \
+    && python manage.py collectstatic --noinput
 
 EXPOSE 8000
 

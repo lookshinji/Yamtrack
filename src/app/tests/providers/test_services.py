@@ -632,8 +632,9 @@ class ServicesTests(TestCase):
 
         mock_search.assert_called_once_with(MediaTypes.ANIME.value, "test", 1)
 
+    @patch("app.providers.tvdb.enabled", return_value=True)
     @patch("app.providers.tvdb.search")
-    def test_search_anime_tvdb(self, mock_search):
+    def test_search_anime_tvdb(self, mock_search, _mock_tvdb_enabled):
         """Test the search function for anime via TVDB."""
         mock_search.return_value = {"results": []}
 

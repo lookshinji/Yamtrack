@@ -137,8 +137,50 @@ class TVModel(TestCase):
             datetime(2023, 6, 5, 0, 0, tzinfo=UTC),
         )
 
-    def test_tv_save(self):
+    @patch("app.models.providers.services.get_media_metadata")
+    def test_tv_save(self, mock_get_media_metadata):
         """Test the custom save method of the TV model."""
+        num_seasons = 10
+        season_metadata = {
+            f"season/{s}": {
+                "title": "Friends",
+                "season_title": f"Season {s}",
+                "media_id": "1668",
+                "media_type": MediaTypes.SEASON.value,
+                "source": Sources.TMDB.value,
+                "image": "http://example.com/image.jpg",
+                "max_progress": 24,
+                "episodes": [],
+            }
+            for s in range(1, num_seasons + 1)
+        }
+        tv_with_seasons_data = {
+            "title": "Friends",
+            "media_id": "1668",
+            "media_type": MediaTypes.TV.value,
+            "source": Sources.TMDB.value,
+            "image": "http://example.com/image.jpg",
+            "max_progress": num_seasons,
+            "related": {"seasons": [{"season_number": s} for s in range(1, num_seasons + 1)]},
+            **season_metadata,
+        }
+        tv_metadata = {
+            "title": "Friends",
+            "media_id": "1668",
+            "media_type": MediaTypes.TV.value,
+            "source": Sources.TMDB.value,
+            "image": "http://example.com/image.jpg",
+            "max_progress": num_seasons,
+            "related": {"seasons": [{"season_number": s} for s in range(1, num_seasons + 1)]},
+        }
+
+        def _side_effect(media_type, media_id, source, *args, **kwargs):
+            if media_type == "tv_with_seasons":
+                return tv_with_seasons_data
+            return tv_metadata
+
+        mock_get_media_metadata.side_effect = _side_effect
+
         self.tv.status = Status.COMPLETED.value
         self.tv.save(update_fields=["status"])
 

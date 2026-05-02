@@ -90,6 +90,7 @@ class Metadata(TestCase):
 
         self.assertEqual(tmdb.get_original_title(response), "The Sound of Music")
 
+    @patch("app.providers.tmdb.get_tvdb_episode_image_map", return_value={})
     @patch("app.providers.tvdb.build_specials_season")
     @patch("app.providers.tmdb.services.api_request")
     @override_settings(TVDB_API_KEY="test-tvdb-key")
@@ -97,6 +98,7 @@ class Metadata(TestCase):
         self,
         mock_api_request,
         mock_build_specials_season,
+        _mock_get_tvdb_episode_image_map,
     ):
         """TV details should synthesize season 0 only from TVDB-linked fallback data."""
         tmdb.cache.clear()
@@ -132,7 +134,7 @@ class Metadata(TestCase):
             },
         }
 
-        def _mock_api_request(source, _method, url, params=None):  # noqa: ARG001
+        def _mock_api_request(source, _method, url, params=None, **kwargs):  # noqa: ARG001
             if source == Sources.TMDB.value and url.endswith("/tv/114410"):
                 return {
                     "id": 114410,
@@ -209,7 +211,7 @@ class Metadata(TestCase):
         """TMDB TV details should not invoke TVDB specials fallback when disabled."""
         tmdb.cache.clear()
 
-        def _mock_api_request(source, _method, url, params=None):  # noqa: ARG001
+        def _mock_api_request(source, _method, url, params=None, **kwargs):  # noqa: ARG001
             if source == Sources.TMDB.value and url.endswith("/tv/114410"):
                 return {
                     "id": 114410,
@@ -392,7 +394,7 @@ class Metadata(TestCase):
         tmdb.cache.clear()
         mock_build_specials_season.return_value = None
 
-        def _mock_api_request(source, _method, url, params=None):  # noqa: ARG001
+        def _mock_api_request(source, _method, url, params=None, **kwargs):  # noqa: ARG001
             if source == Sources.TMDB.value and url.endswith("/tv/114410"):
                 return {
                     "id": 114410,
@@ -480,7 +482,7 @@ class Metadata(TestCase):
             },
         }
 
-        def _mock_api_request(source, _method, url, params=None):  # noqa: ARG001
+        def _mock_api_request(source, _method, url, params=None, **kwargs):  # noqa: ARG001
             if source == Sources.TMDB.value and url.endswith("/tv/114410"):
                 return {
                     "id": 114410,
@@ -677,7 +679,7 @@ class Metadata(TestCase):
             },
         )
 
-        def _mock_api_request(source, _method, url, params=None):
+        def _mock_api_request(source, _method, url, params=None, **kwargs):
             self.assertEqual(source, Sources.TMDB.value)
             self.assertEqual(url, "https://api.themoviedb.org/3/tv/1396")
             self.assertIn("season/1", params["append_to_response"])
@@ -1077,7 +1079,7 @@ class Metadata(TestCase):
                 ],
             },
         }
-        def _mock_episode_request(_source, _method, url, params=None):  # noqa: ARG001
+        def _mock_episode_request(_source, _method, url, params=None, **kwargs):  # noqa: ARG001
             if url.endswith("/episode/1"):
                 return {
                     "name": "Pilot",
@@ -1111,7 +1113,7 @@ class Metadata(TestCase):
         with self.assertRaises(services.ProviderAPIError) as cm:
             tmdb.episode("1396", "1", "3")
 
-        self.assertIn("The Movie Database API (HTTP 404)", str(cm.exception))
+        self.assertIn("The Movie Database (HTTP 404)", str(cm.exception))
 
         mock_tv_with_seasons.assert_called_with("1396", ["1"])
 

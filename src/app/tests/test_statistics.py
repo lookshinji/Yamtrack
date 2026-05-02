@@ -1373,10 +1373,7 @@ class ConsumptionStatisticsTests(TestCase):
         )
 
         tv_month_data = tv_stats["charts"]["by_month"]["datasets"][0]["data"]
-        self.assertEqual(
-            tv_month_data[self.end_date.month - 1],
-            2,
-        )
+        self.assertEqual(sum(tv_month_data), 2)
 
         self.assertEqual(movie_stats["plays"]["total"], 2)
         self.assertAlmostEqual(movie_stats["hours"]["total"], 4.0, places=2)

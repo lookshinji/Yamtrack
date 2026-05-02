@@ -546,6 +546,8 @@ class CreateMedia(TestCase):
                 return tv_with_seasons_metadata
             if media_type == MediaTypes.TV.value:
                 return tv_metadata
+            if media_type == MediaTypes.SEASON.value:
+                return tv_with_seasons_metadata.get(f"season/{season_numbers[0]}")
             error_message = f"Unexpected metadata request: {media_type}"
             raise AssertionError(error_message)
 

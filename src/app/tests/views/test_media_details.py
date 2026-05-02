@@ -1400,11 +1400,11 @@ class MediaDetailsViewTests(TestCase):
         self.assertContains(response, "1h 30min watched")
         self.assertIn('<div class="mb-3 sm:mb-1 text-center md:text-start">', content)
         self.assertIn(
-            'class="flex items-center justify-center gap-0.5 whitespace-nowrap text-[13px] tracking-[-0.01em] sm:hidden"',
+            'class="flex items-center gap-0.5 whitespace-nowrap text-[13px] tracking-[-0.01em] sm:hidden"',
             content,
         )
         self.assertIn("1h 30min (1/8)", content)
-        self.assertIn('class="hidden flex-wrap items-center justify-center gap-y-1 sm:flex md:justify-start"', content)
+        self.assertIn('class="hidden flex-wrap items-center gap-y-1 sm:flex"', content)
         self.assertNotContains(response, "Your History")
         self.assertNotContains(response, "FIRST PLAYED")
         self.assertNotContains(response, "LAST PLAYED")
@@ -4099,16 +4099,15 @@ class MediaDetailsViewTests(TestCase):
         content = response.content.decode()
         self.assertRegex(
             content,
-            r'<div class="mb-1 text-center md:text-start">\s*<div class="inline-flex items-center gap-2 md:flex md:gap-2">\s*<h1 class="text-3xl font-bold cursor-pointer hover:text-indigo-500 transition-colors duration-200">\s*<a href="[^"]+">Test TV Show</a>\s*</h1>',
+            r'<div class="flex items-center gap-2 mb-2">\s*<h1 class="text-3xl font-bold">\s*<a href="[^"]+"[^>]*>Test TV Show</a>\s*<span class="text-gray-400 font-normal"> - Season 1</span>\s*</h1>',
         )
         self.assertIn(
-            'class="flex flex-col gap-y-4 md:flex-row md:gap-y-0 items-center justify-between mb-1"',
+            'class="flex items-center justify-between mb-3 gap-4"',
             content,
         )
-        self.assertIn('class="relative hidden md:block"', content)
-        self.assertIn('<h2 class="text-sm font-medium text-gray-400 md:hidden">Season 1</h2>', content)
+        self.assertIn('class="relative shrink-0"', content)
         self.assertIn(
-            'class="hidden flex-wrap items-center justify-start gap-y-1 text-center text-sm font-medium text-gray-400 md:flex md:text-start"',
+            'class="flex flex-wrap items-center gap-y-1 text-sm font-medium text-gray-400 min-w-0"',
             content,
         )
 
@@ -4197,10 +4196,9 @@ class MediaDetailsViewTests(TestCase):
         content = response.content.decode()
         self.assertRegex(
             content,
-            r'<h1 class="text-3xl font-bold cursor-pointer hover:text-indigo-500 transition-colors duration-200">\s*<a href="[^"]+">Sword Art Online</a>\s*</h1>\s*<div class="relative shrink-0"',
+            r'<h1 class="text-3xl font-bold">\s*<a href="[^"]+"[^>]*>Sword Art Online</a>\s*<span class="text-gray-400 font-normal"> - Season 3</span>\s*</h1>\s*<div class="relative shrink-0"',
         )
         self.assertIn('aria-label="Show alternative title"', content)
-        self.assertIn('<h2 class="text-sm font-medium text-gray-400">Season 3</h2>', content)
         self.assertIn("<p>Alicization</p>", content)
 
     @patch("app.providers.services.get_media_metadata")
@@ -4298,17 +4296,16 @@ class MediaDetailsViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         content = response.content.decode()
         self.assertIn(
-            'class="mb-3 flex flex-col items-center justify-between gap-y-4 md:mb-1 md:flex-row md:gap-y-0"',
+            'class="flex items-center justify-between mb-3 gap-4"',
             content,
         )
-        self.assertIn('<h2 class="text-sm font-medium text-gray-400 md:hidden">Season 1</h2>', content)
         self.assertIn(
-            'class="mt-3 flex flex-wrap items-center justify-center gap-y-1 text-center text-sm font-medium text-gray-400 md:hidden"',
+            'class="flex flex-wrap items-center gap-y-1 text-sm font-medium text-gray-400 min-w-0"',
             content,
         )
         self.assertRegex(
             content,
-            r'class="hidden flex-wrap items-center justify-start gap-y-1 text-center text-sm font-medium text-gray-400 md:flex md:text-start">\s*<h2 class="text-sm font-medium text-gray-400">Season 1</h2>\s*<span class="mx-2 text-gray-600">•</span>\s*<span class="text-sm font-medium text-gray-400">\s*Progress: 2/8\s*</span>\s*<span class="mx-2 text-gray-600">•</span>\s*<span class="text-sm font-medium text-gray-400">\s*2026-03-01 - 2026-03-12\s*</span>',
+            r'class="flex flex-wrap items-center gap-y-1 text-sm font-medium text-gray-400 min-w-0">\s*<span>Progress: 2/8</span>\s*<span class="mx-2 text-gray-600">•</span>\s*<span>\s*2026-03-01 - 2026-03-12\s*</span>',
         )
         self.assertNotIn("Your History", content)
 

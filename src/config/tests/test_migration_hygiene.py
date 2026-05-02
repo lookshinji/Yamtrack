@@ -1,6 +1,8 @@
+import shutil
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import skipIf
 
 from django.core.management import call_command
 from django.test import TestCase
@@ -19,6 +21,7 @@ class _FakeGraph:
 class MigrationHygieneCommandTests(TestCase):
     """Tests for migration hygiene command helpers and smoke behavior."""
 
+    @skipIf(shutil.which("git") is None, "requires git")
     def test_command_passes_with_head_baseline_for_users(self):
         """The command should pass against HEAD baseline for a stable app graph."""
         output = StringIO()

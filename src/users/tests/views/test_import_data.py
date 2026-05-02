@@ -61,7 +61,7 @@ class ImportDataViewTests(TestCase):
         response = self.client.get(reverse("import_data"))
 
         self.assertContains(response, 'x-data="{ traktProfileType: \'public\' }"', html=False)
-        self.assertContains(response, '<label class="block text-sm text-gray-400 mb-2">Profile</label>', html=False)
+        self.assertContains(response, '<label class="block text-sm text-gray-300 mb-2">Profile</label>', html=False)
         self.assertContains(response, '<option value="public">Public profile</option>', html=False)
         self.assertContains(response, '<option value="private">Private profile (OAuth)</option>', html=False)
 

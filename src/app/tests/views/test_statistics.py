@@ -188,14 +188,13 @@ class StatisticsViewTests(TestCase):
 
         self.assertTrue(date_is_none)
 
-    @patch("users.models.CustomUser.update_preference")
+    @patch("users.models.User.update_preference")
     def test_statistics_view_handles_preference_save_operational_error(self, mock_update_preference):
         """Statistics view should render fallback context when preference save hits sqlite lock."""
         mock_update_preference.side_effect = OperationalError("database is locked")
 
         response = self.client.get(
-            reverse("statistics")
-            + "?start-date=2026-01-01&end-date=2026-04-25&compare=none",
+            reverse("statistics") + "?compare=none",
         )
 
         self.assertEqual(response.status_code, 200)
@@ -330,6 +329,8 @@ class StatisticsViewTests(TestCase):
         cache.clear()
         self.client.login(**self.credentials)
         today = timezone.localdate()
+        if today.day == 1:
+            self.skipTest("MTD range [month_start, today] equals Today on the 1st — skipping.")
         month_start = today.replace(day=1)
         last_year_today = today - relativedelta(years=1)
 
